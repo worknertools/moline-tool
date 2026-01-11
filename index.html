@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+    <meta charset="UTF-8">
+    <title>Type play</title>
+    
+
+  </head>
+    
+  <body>
+  <!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Outline Studio | Zero-Clip Burst Edition</title>
+    <style>
+        :root {
+            --panel-bg: #ffffff;
+            --accent: #000000;
+            --text: #111111;
+            --ui-font: 9px;
+            --ui-weight: 400; 
+            --workspace: #f7f7f7;
+            --label-color: #999;
+        }
+
+        * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+
+        body {
+            margin: 0; overflow: hidden; background: var(--workspace);
+            font-family: "Nimbus Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: var(--text);
+            font-weight: var(--ui-weight);
+            user-select: none;
+        }
+        
+        #viewport { 
+            width: 100vw; height: 100vh; display: flex; 
+            align-items: center; justify-content: center; position: relative; 
+        }
+
+        #stage {
+            position: relative; display: inline-block;
+            opacity: 0; transition: opacity 1s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        #stage.visible { opacity: 1; }
+        
+        #canvas-wrapper {
+            position: relative; background-color: #ffffff;
+            box-shadow: none !important; 
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+            border: none;
+        }
+
+        #render-canvas { 
+            width: 100%; height: 100%; display: block; 
+            filter: url(#silhouette-filter); 
+            will-change: filter; 
+        }
+
+        /* 控件面板：无阴影，支持随时移动 */
+        #ui {
+            position: absolute; width: 160px; background: var(--panel-bg); 
+            padding: 12px 15px; z-index: 2000; display: flex; flex-direction: column;
+            left: 0; top: 0; 
+            border: 1px solid rgba(0,0,0,0.06);
+            box-shadow: none !important; 
+            transform-origin: 0 0;
+            cursor: move;
+            will-change: transform, left, top;
+        }
+        
+        #ui button, #ui input { cursor: pointer; }
+
+        button, label { font-size: var(--ui-font) !important; font-weight: var(--ui-weight) !important; letter-spacing: 0.05em; margin: 0; line-height: 1.2; }
+
+        .upload-btn { 
+            width: 100%; height: 20px; background: var(--accent); color: #fff; 
+            border: none; cursor: pointer; position: relative; margin-bottom: 12px; 
+            display: flex; align-items: center; justify-content: center; gap: 4px;
+        }
+        .upload-btn svg { width: 8px; height: 8px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+        .upload-btn input { position: absolute; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+
+        .control { margin-bottom: 8px; width: 100%; }
+        .control label { color: var(--label-color); margin-bottom: 4px; display: block; }
+
+        input[type=range] { width: 100%; height: 1px; background: #eee; appearance: none; -webkit-appearance: none; outline: none; margin: 8px 0; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 5px; height: 5px; background: #000; border-radius: 50%; cursor: pointer; border: none; }
+
+        .export-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .reset-btn { background: none; border: none; padding: 0; color: var(--label-color); cursor: pointer; text-align: right; }
+        
+        .action-row { display: block; margin-top: 2px; }
+        .action-row button { width: 100%; background: #f9f9f9; border: 1px solid #eee; padding: 6px 0; cursor: pointer; color: #333; }
+        .action-row button:hover { background: #000; color: #fff; }
+
+        #svg-filters { position: absolute; visibility: hidden; width: 0; height: 0; pointer-events: none; }
+        .exporting { pointer-events: none; opacity: 0.5; }
+    </style>
+</head>
+<body>
+
+<svg id="svg-filters">
+    <defs>
+        <!-- 将计算区域扩展至 500% 确保内部滤镜不裁切 -->
+        <filter id="silhouette-filter" x="-200%" y="-200%" width="500%" height="500%" color-interpolation-filters="sRGB">
+            <feMorphology id="f-dilate" operator="dilate" radius="2" in="SourceGraphic" result="thick"/>
+            <feTurbulence type="fractalNoise" baseFrequency="0.06" numOctaves="4" result="noise" seed="1"/>
+            <feDisplacementMap id="f-disp" in="thick" in2="noise" scale="5" xChannelSelector="R" yChannelSelector="G" result="burst"/>
+            <feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 80 -10" />
+        </filter>
+    </defs>
+</svg>
+
+<div id="viewport">
+    <div id="stage">
+        <div id="canvas-wrapper"></div>
+        <div id="ui">
+            <button class="upload-btn">
+                <svg viewBox="0 0 24 24"><path d="M12 3v13M7 8l5-5 5 5M5 20h14"/></svg>
+                Import
+                <input type="file" id="fileInput" accept="image/*">
+            </button>
+
+            <div class="control">
+                <label>Threshold</label>
+                <input type="range" id="param-thresh" min="0.0" max="1.0" step="0.01" value="0.5">
+            </div>
+            <div class="control">
+                <label>Stroke (Bold)</label>
+                <input type="range" id="param-weight" min="0.0" max="40.0" step="0.1" value="6.0">
+            </div>
+            <div class="control">
+                <label>Wobble (Burst)</label>
+                <input type="range" id="param-rough" min="0.0" max="80.0" step="0.5" value="20.0">
+            </div>
+
+            <div class="control" id="export-section">
+                <div class="export-header">
+                    <label>Export</label>
+                    <button class="reset-btn" onclick="resetAll()">Reset</button>
+                </div>
+                <div class="action-row">
+                    <button onclick="saveSVG()" id="btn-svg">SVG</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script id="vertexShader" type="x-shader/x-vertex">
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+</script>
+<script id="fragmentShader" type="x-shader/x-fragment">
+    precision highp float;
+    uniform sampler2D tDiffuse;
+    uniform vec2 uResolution;
+    uniform float uThreshold;
+    uniform bool uHasTexture;
+    varying vec2 vUv;
+
+    float getLuma(vec2 uv) {
+        vec4 col = texture2D(tDiffuse, uv);
+        return dot(col.rgb, vec3(0.299, 0.587, 0.114));
+    }
+
+    void main() {
+        if(!uHasTexture) discard;
+        vec2 texel = 1.0 / uResolution;
+        float mC = step(uThreshold, getLuma(vUv));
+        float mR = step(uThreshold, getLuma(vUv + vec2(texel.x, 0.0)));
+        float mL = step(uThreshold, getLuma(vUv - vec2(texel.x, 0.0)));
+        float mT = step(uThreshold, getLuma(vUv + vec2(0.0, texel.y)));
+        float mB = step(uThreshold, getLuma(vUv - vec2(0.0, texel.y)));
+        float edge = (mC != mR || mC != mL || mC != mT || mC != mB) ? 1.0 : 0.0;
+        
+        // 极致保护边缘：防止图片贴边导致的杂色
+        if(vUv.x < 0.001 || vUv.x > 0.999 || vUv.y < 0.001 || vUv.y > 0.999) edge = 0.0;
+        
+        gl_FragColor = vec4(0.0, 0.0, 0.0, edge);
+    }
+</script>
+
+<script>
+    let scene, camera, renderer, material, quad;
+    const RATIO = 0.75, BASE_H = 1200; 
+    let currentImgAspect = 1;
+
+    // UI 拖动相关
+    let isDraggingUI = false;
+    let uiStartX, uiStartY, uiInitL, uiInitT, uiScale = 1;
+    const uiPanel = document.getElementById('ui');
+
+    function init() {
+        const wrapper = document.getElementById('canvas-wrapper');
+        scene = new THREE.Scene();
+        camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+        renderer.setPixelRatio(window.devicePixelRatio > 1 ? 2 : 1); 
+        renderer.domElement.id = "render-canvas";
+        wrapper.appendChild(renderer.domElement);
+
+        material = new THREE.ShaderMaterial({
+            transparent: true,
+            uniforms: {
+                tDiffuse: { value: new THREE.Texture() },
+                uResolution: { value: new THREE.Vector2(BASE_H * RATIO, BASE_H) },
+                uThreshold: { value: 0.5 },
+                uHasTexture: { value: false }
+            },
+            vertexShader: document.getElementById('vertexShader').textContent,
+            fragmentShader: document.getElementById('fragmentShader').textContent
+        });
+
+        quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(quad);
+
+        setup();
+        initUIMovement();
+        onResize();
+        setTimeout(() => { document.getElementById('stage').classList.add('visible'); }, 150);
+        animate();
+    }
+
+    function setup() {
+        document.getElementById('fileInput').onchange = (e) => {
+            if(!e.target.files[0]) return;
+            const url = URL.createObjectURL(e.target.files[0]);
+            new THREE.TextureLoader().load(url, (tex) => {
+                material.uniforms.tDiffuse.value = tex;
+                material.uniforms.uHasTexture.value = true;
+                currentImgAspect = tex.image.width / tex.image.height;
+                updateGraphicSize();
+            });
+        };
+        document.getElementById('param-thresh').oninput = (e) => material.uniforms.uThreshold.value = e.target.value;
+        document.getElementById('param-weight').oninput = syncFilter;
+        document.getElementById('param-rough').oninput = syncFilter;
+    }
+
+    /**
+     * 图形适配：采用 SAFE_ZONE = 0.5
+     * 确保图形本体只占 50%，余下 50% 空间留给线条生长，彻底防止裁切。
+     */
+    function updateGraphicSize() {
+        if(!material.uniforms.uHasTexture.value) return;
+        const SAFE_ZONE = 0.5; 
+        let sw, sh;
+        if (currentImgAspect > RATIO) {
+            sw = SAFE_ZONE; sh = SAFE_ZONE * (RATIO / currentImgAspect);
+        } else {
+            sh = SAFE_ZONE; sw = SAFE_ZONE * (currentImgAspect / RATIO);
+        }
+        quad.scale.set(sw, sh, 1);
+        quad.position.set(0, 0, 0); 
+    }
+
+    function initUIMovement() {
+        uiPanel.onmousedown = (e) => {
+            // 点击交互控件时不触发拖拽
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+            
+            isDraggingUI = true;
+            uiPanel.style.transition = 'none';
+            uiStartX = e.clientX;
+            uiStartY = e.clientY;
+            
+            const rect = uiPanel.getBoundingClientRect();
+            const stageRect = document.getElementById('stage').getBoundingClientRect();
+            uiInitL = (rect.left - stageRect.left) / uiScale;
+            uiInitT = (rect.top - stageRect.top) / uiScale;
+
+            const onMouseMove = (me) => {
+                if (!isDraggingUI) return;
+                const dx = (me.clientX - uiStartX) / uiScale;
+                const dy = (me.clientY - uiStartY) / uiScale;
+                requestAnimationFrame(() => {
+                    uiPanel.style.left = (uiInitL + dx) + 'px';
+                    uiPanel.style.top = (uiInitT + dy) + 'px';
+                });
+            };
+
+            const onMouseUp = () => {
+                isDraggingUI = false;
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', onMouseUp);
+            };
+
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        };
+    }
+
+    function syncFilter() {
+        const factor = renderer.domElement.height / 1000;
+        const radius = parseFloat(document.getElementById('param-weight').value);
+        const wobble = parseFloat(document.getElementById('param-rough').value);
+        document.getElementById('f-dilate').setAttribute('radius', radius * factor);
+        const dynamicScale = wobble * factor * (1 + radius * 0.05);
+        document.getElementById('f-disp').setAttribute('scale', dynamicScale);
+    }
+
+    function resetAll() {
+        material.uniforms.uHasTexture.value = false;
+        document.getElementById('fileInput').value = "";
+        document.getElementById('param-thresh').value = 0.5;
+        document.getElementById('param-weight').value = 6.0;
+        document.getElementById('param-rough').value = 20.0;
+        material.uniforms.uThreshold.value = 0.5;
+        
+        syncFilter();
+        updateGraphicSize();
+
+        // UI 顺滑归位
+        uiPanel.style.transition = 'all 0.6s cubic-bezier(0.16, 1, 0.3, 1)';
+        uiPanel.style.left = '0px';
+        uiPanel.style.top = '0px';
+    }
+
+    function onResize() {
+        const wrapper = document.getElementById('canvas-wrapper');
+        const h = window.innerHeight * 0.85;
+        const w = h * RATIO;
+        wrapper.style.width = w + 'px'; wrapper.style.height = h + 'px';
+        
+        uiScale = Math.max(h / 850, 0.45);
+        uiPanel.style.transform = `scale(${uiScale})`;
+
+        renderer.setSize(BASE_H * RATIO, BASE_H);
+        updateGraphicSize();
+        syncFilter();
+    }
+
+    function animate() { 
+        requestAnimationFrame(animate); 
+        renderer.render(scene, camera); 
+    }
+
+    async function saveSVG() {
+        if(!material.uniforms.uHasTexture.value) return;
+        document.getElementById('export-section').classList.add('exporting');
+        await new Promise(r => setTimeout(r, 100));
+        const w = renderer.domElement.width, h = renderer.domElement.height;
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = w; offCanvas.height = h;
+        const ctx = offCanvas.getContext('2d');
+        ctx.filter = getComputedStyle(renderer.domElement).filter;
+        ctx.drawImage(renderer.domElement, 0, 0);
+        const imgData = ctx.getImageData(0, 0, w, h).data;
+        let pathData = "";
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                if (imgData[(y * w + x) * 4 + 3] > 128) {
+                    let run = 1;
+                    while (x + run < w && imgData[(y * w + (x + run)) * 4 + 3] > 128) run++;
+                    pathData += `M${x},${y}h${run}v1h-${run}z `;
+                    x += run - 1;
+                }
+            }
+        }
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path d="${pathData}" fill="black"/></svg>`;
+        const blob = new Blob([svg], {type: 'image/svg+xml'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `vector-burst-${Date.now()}.svg`;
+        a.click();
+        document.getElementById('export-section').classList.remove('exporting');
+    }
+
+    window.addEventListener('load', init);
+    window.addEventListener('resize', onResize);
+</script>
+</body>
+</html>
+    
+  </body>
+  
+</html>
